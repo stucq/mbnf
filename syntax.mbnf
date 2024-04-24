@@ -1,0 +1,132 @@
+// MBNF: Modern BNF.
+// Version 1.0.0
+//
+// This document (written in MBNF) defines the syntax and semantics of MBNF.
+
+// This specifies the MBNF version, NOT the version of the grammar in question.
+%version 1.0.0
+
+// We don't define what an identifier is here, since that's for the tokenizer to
+// decide. However, it is any string that matches the regular expression
+// /[a-zA-Z0-9\-]+/. Whitespace is important.
+//
+// We also don't define what a string literal is, though it is any string that
+// matches the regular expression /".+"/ or /'.+'/. Whitespace is also important
+// here, and note the lack of a multiline flag.
+//
+// Finally, we don't define what a "number literal" is; however, numbers are
+// unsigned. They are used in ranges. As such, they can be represented by the
+// regular expression /\d+/.
+%extern identifier string-literal number-literal;
+
+// Also, we ignore comments. Once again, these aren't defined here, since that's
+// for the tokenizer to decide; however, single-line (C++-style) comments match
+// the regular expression /\/\/.*$/, and multi-line (C-style) comments match the
+// regular expression /\/\*.+\*\//m. These can be recursive, and PCRE extensions
+// are necessary to express this: /\/\*.*(?R)?.*\*\//m. In all of these,
+// whitespace is important.
+%ignore comment;
+
+// A single MBNF grammar is a series of statements ending in semicolons.
+grammar = (statement ";")+;
+
+// A statement is a grammar rule or production rule.
+statement =
+	grammar-rule .
+	production-rule;
+
+// A grammar rule represents a rule defining a certain property of the grammar,
+// but not defining any nonterminals. They begin with "%".
+grammar-rule = "%" (extern-rule | ignore-rule | version-rule);
+
+// MBNF doesn't handle tokenization or whitespace rules (e.g. it doesn't want to
+// be responsible for determining that "1+2", "1 + 2", and "1 abc" are all
+// valid, whereas "1abc" is not valid), so extern rules are used to define
+// terminals that are used in a given grammar.
+extern-rule = "extern" identifier+;
+
+// This is similar in purpose to extern, however in function it is the exact
+// opposite--with extern we handle nonterminals that *are* used, for this we
+// handle nonterminals that we want to ignore (e.g. comments).
+ignore-rule = "ignore" identifier+;
+
+// This represents the version of MBNF the grammar was written for. A grammar
+// written for a given version A.B.C is guaranteed to work on any processor that
+// supports a version X.Y.Z, provided A = X, Y >= B, and Z >= C. Multiple of
+// these directives are possible if a grammar works on multiple different
+// versions that aren't 100% guaranteed to be compatible with each other for all
+// possible grammars.
+version-rule =
+	"version"
+	number-literal /* major */ "."
+	number-literal /* minor */ "."
+	number-literal /* patch */;
+
+// Production rules represent a certain grammatical rule. Semantically, this is
+// exactly the same as in any other BNF-like.
+production-rule = identifier "=" expression;
+
+// An expression is the core unit of a production rule.
+expression = dot-expression;
+
+// . is the lowest-precedence operator in MBNF, even above concatenation. It is
+// functionally identical to "|" (or), though with different precedence.
+dot-expression =
+	concatenation-expression "." dot-expression .
+	concatenation-expression;
+
+// There is no operator for concatenation; adjacent symbols will be concatenated
+// together. However, it is above the dot operator in precedence.
+concat-expression = option-expression+;
+
+// Above concatenation in precedence is the option operator ("|"). This means
+// that an expression can take the form of one of multiple expressions.
+option-expression =
+	modifier-expression "|" option-expression .
+	modifier-expression;
+
+// Modifier expressions are unary modifiers for a given expression. Only one can
+// be applied at once. These are described in the `modifier` production rule.
+modifier-expression = grouping-expression modifier?
+
+// The possible modifiers are as follows:
+modifier =
+	// One or more repetitions.
+	// Equivalent to the range `{1,}`.
+	"+" .
+
+	// Zero or more repetitions.
+	// Equivalent to the range `{,}`.
+	"*" .
+
+	// Zero or one repetitions.
+	// Equivalent to the range `{0,1}` or `{,1}`.
+	"?" .
+
+	// `range` repetitions; see below.
+	"{" range "}";
+
+// A range is defined as follows:
+range =
+	// Exactly n repetitions.
+	number-literal /* n */ .
+
+	// Inclusive range; between [n1, n2] repetitions.
+	// - If num1 is not defined, it is treated as 0.
+	// - If num2 is not defined, it is treated as infinity.
+	number-literal? /* n1 */ "," number-literal? /* n2 */;
+
+// A grouping expression is self-explanatory. It is the lowest precedence level
+// except for primary expressions.
+grouping-expression =
+	"(" expression ")" .
+	primary-expression;
+
+// A primary expression is the lowest level of expression. It is either a string
+// literal or an identifier (terminal or non-terminal).
+primary-expression =
+	string-literal .
+	identifier;
+
+// This MBNF file describes *all* valid MBNF syntax and is able to validate
+// itself.
